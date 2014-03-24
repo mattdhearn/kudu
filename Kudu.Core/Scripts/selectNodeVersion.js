@@ -89,26 +89,6 @@ function getNodeStartFile(sitePath) {
     return null;
 }
 
-function createIisNodeWebConfigIfNeeded(repoPath, wwwrootPath) {
-    // Check if web.config exists in the 'repository', if not generate it in 'wwwroot'
-    var webConfigRepoPath = path.join(repoPath, 'web.config'),
-        webConfigWwwRootPath = path.join(wwwrootPath, 'web.config');
-
-    if (!existsSync(webConfigRepoPath)) {
-        var nodeStartFilePath = getNodeStartFile(repoPath);
-        if (!nodeStartFilePath) {
-            console.log('Missing server.js/app.js files, web.config is not generated');
-            return;
-        }
-
-        var iisNodeConfigTemplatePath = path.join(__dirname, 'iisnode.config.template');
-        var webConfigContent = fs.readFileSync(iisNodeConfigTemplatePath, 'utf8');
-        webConfigContent = webConfigContent.replace(/\{NodeStartFile\}/g, nodeStartFilePath);
-
-        fs.writeFileSync(webConfigWwwRootPath, webConfigContent, 'utf8');
-    }
-}
-
 // Determine the installation location of node.js and iisnode
 var programFilesDir = process.env['programfiles(x86)'] || process.env.programfiles,
     nodejsDir = path.resolve(programFilesDir, 'nodejs'),
@@ -135,8 +115,59 @@ if (!existsSync(wwwroot) || !existsSync(repo) || (tempDir && !existsSync(tempDir
     throw new Error('Usage: node.exe selectNodeVersion.js <path_to_repo> <path_to_wwwroot> [path_to_temp]');
 }
 
-// If the web.config file does not exit in the repo, use a default one that is specific for node on IIS in Azure
-createIisNodeWebConfigIfNeeded(repo, wwwroot);
+var packageJson = path.resolve(repo, 'package.json'),
+    json = existsSync(packageJson) && JSON.parse(fs.readFileSync(packageJson, 'utf8'));
+
+// If the web.config file does not exit in the repo, use a default one that is specific for node on IIS in Azure, 
+// and generate it in 'wwwroot'
+(function createIisNodeWebConfigIfNeeded() {
+    var webConfigRepoPath = path.join(repo, 'web.config'),
+        webConfigWwwRootPath = path.join(wwwroot, 'web.config'),
+        nodeStartFilePath;
+
+    if (!existsSync(webConfigRepoPath)) {
+        if (typeof json !== 'object' || typeof json.scripts !== 'object' || typeof json.scripts.start !== 'string') {
+            nodeStartFilePath = getNodeStartFile(repo);
+            if (!nodeStartFilePath) {
+                console.log('Missing server.js/app.js files, web.config is not generated');
+                return;
+            }
+            console.log('Using start-up script ' + nodeStartFilePath + ' found under site root.');
+        } else {
+            var startupCommand = json.scripts.start;
+            var defaultNode = "node ";
+            if (startupCommand.length <= defaultNode.length || startupCommand.slice(0, defaultNode.length) !== defaultNode) {
+                console.log('Invalid start-up command in package.json. Please use the format "node <script path>".');
+                console.log('web.config is not generated');
+                return;
+            }
+            nodeStartFilePath = startupCommand.slice(defaultNode.length);
+            // For iisnode handler
+            if (nodeStartFilePath.slice(0, 2) === "./") {
+                nodeStartFilePath = nodeStartFilePath.slice(2);
+            }
+            console.log('Using start-up script ' + nodeStartFilePath + ' specified in package.json.');
+        }
+
+        var iisNodeConfigTemplatePath = path.join(__dirname, 'iisnode.config.template');
+        var webConfigContent = fs.readFileSync(iisNodeConfigTemplatePath, 'utf8');
+        webConfigContent = webConfigContent.replace(/\{NodeStartFile\}/g, nodeStartFilePath);
+
+        //<remove segment='bin'/>
+        //<remove segment='www'/>
+        var segments = nodeStartFilePath.split("/");
+        var removeHiddenSegment = "";
+        segments.forEach(function(segment) {
+            removeHiddenSegment += "<remove segment='" + segment + "'/>";
+        });
+        webConfigContent = webConfigContent.replace(/\{REMOVE_HIDDEN_SEGMENT\}/g, removeHiddenSegment);
+
+        fs.writeFileSync(webConfigWwwRootPath, webConfigContent, 'utf8');
+
+        console.log('Generated web.config.');
+    }
+})();
+
 
 // If the iinode.yml file does not exit in the repo but exists in wwwroot, remove it from wwwroot 
 // to prevent side-effects of previous deployments
@@ -162,9 +193,6 @@ try {
     } else {
         // If the package.json file is not included with the application 
         // or if it does not specify node.js version constraints, use WEBSITE_NODE_DEFAULT_VERSION. 
-        var packageJson = path.resolve(repo, 'package.json'),
-            json = existsSync(packageJson) && JSON.parse(fs.readFileSync(packageJson, 'utf8'));
-
         if (typeof json !== 'object' || typeof json.engines !== 'object' || typeof json.engines.node !== 'string') {
             // Attempt to read the pinned node version or fallback to the version of the executing node.exe.
             console.log('The package.json file does not specify node.js engine version constraints.');
@@ -215,5 +243,5 @@ try {
 
 } catch (ex) {
     console.error(ex.message);
-    return flushAndExit(-1);
+    flushAndExit(-1);
 }
