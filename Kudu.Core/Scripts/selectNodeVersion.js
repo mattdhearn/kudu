@@ -76,7 +76,7 @@ function saveNodePaths(tempDir, nodeExePath, npmPath) {
     }
 }
 
-function getNodeStartFile(sitePath) {
+function getNodeDefaultStartFile(sitePath) {
     var nodeStartFiles = ['server.js', 'app.js'];
 
     for (var i = 0; i < nodeStartFiles.length; i++) {
@@ -123,44 +123,36 @@ var packageJson = path.resolve(repo, 'package.json'),
 (function createIisNodeWebConfigIfNeeded() {
     var webConfigRepoPath = path.join(repo, 'web.config'),
         webConfigWwwRootPath = path.join(wwwroot, 'web.config'),
-        nodeStartFilePath;
+        nodeStartFilePath = null;
 
     if (!existsSync(webConfigRepoPath)) {
-        if (typeof json !== 'object' || typeof json.scripts !== 'object' || typeof json.scripts.start !== 'string') {
-            nodeStartFilePath = getNodeStartFile(repo);
+        if (typeof json === 'object' && typeof json.scripts === 'object' && typeof json.scripts.start === 'string') {
+            var startupCommand = json.scripts.start;
+            var defaultNode = "node ";
+            if (startupCommand.length > defaultNode.length && startupCommand.slice(0, defaultNode.length) === defaultNode) {
+                nodeStartFilePath = startupCommand.slice(defaultNode.length);
+                // For the path to be read by iisnode handler
+                if (nodeStartFilePath.slice(0, 2) === "./") {
+                    nodeStartFilePath = nodeStartFilePath.slice(2);
+                }
+                console.log('Using start-up script ' + nodeStartFilePath + ' specified in package.json.');
+            } else {
+                console.log('Invalid start-up command in package.json. Please use the format "node <script path>".');
+            }
+        } 
+        
+        if (!nodeStartFilePath) {
+            nodeStartFilePath = getNodeDefaultStartFile(repo);
             if (!nodeStartFilePath) {
                 console.log('Missing server.js/app.js files, web.config is not generated');
                 return;
             }
             console.log('Using start-up script ' + nodeStartFilePath + ' found under site root.');
-        } else {
-            var startupCommand = json.scripts.start;
-            var defaultNode = "node ";
-            if (startupCommand.length <= defaultNode.length || startupCommand.slice(0, defaultNode.length) !== defaultNode) {
-                console.log('Invalid start-up command in package.json. Please use the format "node <script path>".');
-                console.log('web.config is not generated');
-                return;
-            }
-            nodeStartFilePath = startupCommand.slice(defaultNode.length);
-            // For iisnode handler
-            if (nodeStartFilePath.slice(0, 2) === "./") {
-                nodeStartFilePath = nodeStartFilePath.slice(2);
-            }
-            console.log('Using start-up script ' + nodeStartFilePath + ' specified in package.json.');
         }
 
         var iisNodeConfigTemplatePath = path.join(__dirname, 'iisnode.config.template');
         var webConfigContent = fs.readFileSync(iisNodeConfigTemplatePath, 'utf8');
         webConfigContent = webConfigContent.replace(/\{NodeStartFile\}/g, nodeStartFilePath);
-
-        //<remove segment='bin'/>
-        //<remove segment='www'/>
-        var segments = nodeStartFilePath.split("/");
-        var removeHiddenSegment = "";
-        segments.forEach(function(segment) {
-            removeHiddenSegment += "<remove segment='" + segment + "'/>";
-        });
-        webConfigContent = webConfigContent.replace(/\{REMOVE_HIDDEN_SEGMENT\}/g, removeHiddenSegment);
 
         fs.writeFileSync(webConfigWwwRootPath, webConfigContent, 'utf8');
 
