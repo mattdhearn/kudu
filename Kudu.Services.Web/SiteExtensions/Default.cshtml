@@ -71,7 +71,7 @@
                             </a>
                         </div>
                         <div class="col-xs-9">
-                            <button class="btn btn-info button-bottom-left installButton" role="button" data-bind="visible: LocalPath == null"
+                            <button class="btn btn-info button-bottom-left installButton" role="button" data-bind="visible: !LocalPath"
                                     data-toggle="tooltip" data-placement="top" title="Install">
                                 <i class="fa fa-plus"></i>
                             </button>
@@ -106,7 +106,7 @@
                     <div data-bind="visible: Summary">
                         <p class="text-4line" data-bind="text: Summary"></p>
                     </div>
-                    <div data-bind="visible: Summary === null && Description">
+                    <div data-bind="visible: (!Summary) && Description">
                         <p class="text-4line" data-bind="text: Description"></p>
                     </div>
                 </div>
@@ -148,7 +148,7 @@
                     <strong>License</strong>
                     <p><a data-bind="text: LicenseUrl, attr: {href: LicenseUrl, target: '_blank'}"></a></p>
                 </div>
-                <div id="detailsPublishedDateTime" data-bind="visible: InstalledDateTime === null && PublishedDateTime">
+                <div id="detailsPublishedDateTime" data-bind="visible: (!InstalledDateTime) && PublishedDateTime">
                     <strong>Published Time</strong>
                     <p data-bind="text: PublishedDateTime"></p>
                 </div>
