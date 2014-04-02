@@ -6,6 +6,8 @@ using System.Threading;
 using System.Web;
 using Kudu.Contracts.Tracing;
 using Kudu.Core.Infrastructure;
+using System.IO;
+using System.Security.Cryptography;
 
 namespace Kudu.Services.Web.Tracing
 {
@@ -15,6 +17,9 @@ namespace Kudu.Services.Web.Tracing
         private static readonly object _stepKey = new object();
         private static int _traceStartup;
         private static DateTime _lastRequestDateTime;
+
+        private static readonly object _thisLock = new object();
+        private static string _host;
 
         public static TimeSpan UpTime
         {
@@ -39,6 +44,11 @@ namespace Kudu.Services.Web.Tracing
 
             var httpContext = ((HttpApplication)sender).Context;
             var httpRequest = new HttpRequestWrapper(httpContext.Request);
+
+            // Swap settings, this is done once per host
+            // This is a convenient place since it is called on every request
+            // and Host header info is available.
+            SwapSettings(httpRequest.Headers["HOST"]);
 
             // HACK: If it's a Razor extension, add a dummy extension to prevent WebPages for blocking it,
             // as we need to serve those files via /vfs
@@ -207,6 +217,39 @@ namespace Kudu.Services.Web.Tracing
                 System.Threading.Thread.CurrentThread.ManagedThreadId));
 
             return attribs;
+        }
+
+        public static void SwapSettings(string host)
+        {
+            if (!String.Equals(host, _host, StringComparison.OrdinalIgnoreCase))
+            {
+                lock (_thisLock)
+                {
+                    if (!String.Equals(host, _host, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string rootPath = PathResolver.ResolveRootPath();
+                        
+                        SwapSettings(host, Path.Combine(rootPath, Constants.SSHKeyPath), "*");
+                        SwapSettings(host, Path.Combine(rootPath, Constants.DeploymentCachePath), Constants.DeploySettingsPath);
+
+                        _host = host;
+                    }
+                }
+            }
+        }
+
+        public static void SwapSettings(string host, string path, string filter)
+        {
+            if (FileSystemHelpers.DirectoryExists(path))
+            {
+                // use just the site name as suffix
+                var pattern = String.Format("{0}_{1}", filter, host.Split('.')[0]);
+                foreach (var file in FileSystemHelpers.GetFiles(path, pattern))
+                {
+                    var target = file.Substring(0, file.Length - host.Length - 1);
+                    FileSystemHelpers.MoveFile(file, target, overwrite: true);
+                }
+            }
         }
 
         public void Dispose()

@@ -128,6 +128,24 @@ namespace Kudu.Core.Infrastructure
             }
         }
 
+        public static void CopyFile(string sourceFile, string destinationFile, bool overwrite = true)
+        {
+            Instance.File.Copy(sourceFile, destinationFile, overwrite);
+        }
+
+        public static void MoveFile(string sourceFile, string destinationFile, bool overwrite = true)
+        {
+            if (overwrite)
+            {
+                CopyFile(sourceFile, destinationFile, overwrite);
+                DeleteFileSafe(sourceFile);
+            }
+            else
+            {
+                Instance.File.Move(sourceFile, destinationFile);
+            }
+        }
+
         // From MSDN: http://msdn.microsoft.com/en-us/library/bb762914.aspx
         public static void CopyDirectoryRecursive(string sourceDirPath, string destinationDirPath, bool overwrite = true)
         {
